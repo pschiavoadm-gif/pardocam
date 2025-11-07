@@ -36,6 +36,10 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
     };
   }, []);
 
+  // Polygon shapes for perspective trigger zones, matching the line's angle.
+  const entryZoneStyle = { clipPath: 'polygon(0 70%, 100% 60%, 100% 100%, 0% 100%)' };
+  const exitZoneStyle = { clipPath: 'polygon(0 0, 100% 0, 100% 60%, 0 70%)' };
+
   return (
     <div className="relative w-full aspect-[4/3] bg-gray-900 flex items-center justify-center text-white overflow-hidden">
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
@@ -46,12 +50,21 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
       )}
       {!error && (
         <>
-            {/* Virtual Line */}
-            <div className="absolute top-2/3 left-0 w-full h-1.5 bg-[#1178C0] shadow-[0_0_15px_rgba(17,120,192,0.9)]"></div>
-            
-            {/* Simulation Trigger Zones */}
+            {/* Virtual Line with perspective, positioned to match the clip-paths */}
             <div 
-                className="absolute bottom-0 left-0 w-full h-2/3 cursor-pointer group"
+                className="absolute h-1.5 bg-[#1178C0] shadow-[0_0_15px_rgba(17,120,192,0.9)]"
+                style={{
+                    top: '65%', // Midpoint between 70% and 60%
+                    left: '-5%',
+                    width: '110%',
+                    transform: 'translateY(-50%) rotate(-5.7deg)',
+                }}
+            />
+            
+            {/* Simulation Trigger Zones with perspective clip-path */}
+            <div 
+                className="absolute inset-0 cursor-pointer group"
+                style={entryZoneStyle}
                 onClick={onEntry}
                 title="Simulate Entry"
             >
@@ -60,7 +73,8 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
                 </div>
             </div>
             <div 
-                className="absolute top-0 left-0 w-full h-1/3 cursor-pointer group"
+                className="absolute inset-0 cursor-pointer group"
+                style={exitZoneStyle}
                 onClick={onExit}
                 title="Simulate Exit"
             >
