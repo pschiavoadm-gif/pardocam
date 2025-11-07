@@ -1,7 +1,11 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 
-// Declare MediaPipe Vision types for TypeScript
-declare const mp_vision: any;
+// Declare MediaPipe Vision types for TypeScript, making it available on the window object
+declare global {
+  interface Window {
+    mp_vision: any;
+  }
+}
 
 interface CameraViewProps {
   onEntry: () => void;
@@ -36,33 +40,56 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
   const [error, setError] = useState<string | null>(null);
   const [detections, setDetections] = useState<DetectionBox[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [scriptLoaded, setScriptLoaded] = useState(false);
 
   const faceDetectorRef = useRef<any>(null);
-  // FIX: `useRef` requires an initial value when a generic type argument is provided.
   const animationFrameId = useRef<number | undefined>(undefined);
   const trackedPeople = useRef<Map<number, TrackedPerson>>(new Map());
   const nextPersonId = useRef(0);
   const frameCount = useRef(0);
+  
+  // Effect to load MediaPipe scripts dynamically and reliably
+  useEffect(() => {
+    if (window.mp_vision) {
+        setScriptLoaded(true);
+        return;
+    }
+
+    const script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/js/vision_bundle.js";
+    script.crossOrigin = "anonymous";
+
+    script.onload = () => {
+        const checkInterval = setInterval(() => {
+            if (window.mp_vision) {
+                clearInterval(checkInterval);
+                setScriptLoaded(true);
+            }
+        }, 100);
+
+        setTimeout(() => {
+            clearInterval(checkInterval);
+            if (!window.mp_vision) {
+                setError("MediaPipe library loaded but failed to initialize. Please refresh.");
+                setIsLoading(false);
+            }
+        }, 5000); // 5-second timeout for initialization
+    };
+
+    script.onerror = () => {
+        setError("Failed to load MediaPipe script. Check network connection and refresh.");
+        setIsLoading(false);
+    };
+    
+    document.head.appendChild(script);
+  }, []);
 
   const setupDetector = useCallback(async () => {
     try {
-        // Poll for mp_vision to be loaded with a timeout
-        await new Promise<void>((resolve, reject) => {
-            const interval = setInterval(() => {
-                if (typeof mp_vision !== 'undefined' && mp_vision.FaceDetector) {
-                    clearInterval(interval);
-                    clearTimeout(timeout);
-                    resolve(undefined);
-                }
-            }, 100);
-
-            const timeout = setTimeout(() => {
-                clearInterval(interval);
-                reject(new Error("MediaPipe library not loaded yet. Please refresh."));
-            }, 10000); // 10 second timeout
-        });
-
-      const { FaceDetector, FilesetResolver } = mp_vision;
+      if (!window.mp_vision || !window.mp_vision.FaceDetector) {
+        throw new Error("MediaPipe library is not available.");
+      }
+      const { FaceDetector, FilesetResolver } = window.mp_vision;
       const vision = await FilesetResolver.forVisionTasks(
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
       );
@@ -95,14 +122,12 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
         box: d.boundingBox
     }));
 
-    // Match new detections with existing tracked people
     for(const newDetection of newDetectionCenters) {
         let bestMatch: { id: number; distSq: number } | null = null;
-
         for (const [id, person] of trackedPeople.current.entries()) {
             if (matchedIds.has(id)) continue;
             const distSq = getDistanceSq(person.center, newDetection.center);
-            if (distSq < (videoWidth * 0.2) * (videoWidth * 0.2)) { // Match threshold
+            if (distSq < (videoWidth * 0.2) * (videoWidth * 0.2)) {
                 if (!bestMatch || distSq < bestMatch.distSq) {
                     bestMatch = { id, distSq };
                 }
@@ -113,7 +138,6 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
             const person = trackedPeople.current.get(bestMatch.id)!;
             const prevCenter = person.center;
             
-            // Check for line crossing
             if (!person.hasCrossed) {
                 if(prevCenter.x < linePosition && newDetection.center.x >= linePosition) {
                     onEntry();
@@ -130,12 +154,11 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
             currentDetections.set(person.id, person);
             matchedIds.add(person.id);
         } else {
-            // New person detected
             const newId = nextPersonId.current++;
             const newPerson: TrackedPerson = {
                 id: newId,
                 lastSeenFrame: now,
-                hasCrossed: newDetection.center.x > linePosition, // Don't count people who spawn on the other side
+                hasCrossed: newDetection.center.x > linePosition,
                 center: newDetection.center,
                 box: newDetection.box,
             };
@@ -143,16 +166,14 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
         }
     }
     
-    // Prune old tracks
     for (const [id, person] of trackedPeople.current.entries()) {
-        if (now - person.lastSeenFrame > 15) { // Remove after 15 frames of not being seen
+        if (now - person.lastSeenFrame > 15) {
              trackedPeople.current.delete(id);
         }
     }
     
     trackedPeople.current = currentDetections;
 
-    // Set detections for rendering
     const boxesToRender: DetectionBox[] = Array.from(trackedPeople.current.values()).map(p => ({
         box: p.box,
         id: p.id,
@@ -164,16 +185,11 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
 
   const predictWebcam = useCallback(() => {
     const video = videoRef.current;
-    if (!video || !faceDetectorRef.current) {
+    if (!video || !faceDetectorRef.current || video.readyState < 2) {
       animationFrameId.current = requestAnimationFrame(predictWebcam);
       return;
     }
     
-    if (video.readyState < 2) {
-        animationFrameId.current = requestAnimationFrame(predictWebcam);
-        return;
-    }
-
     const results = faceDetectorRef.current.detectForVideo(video, performance.now());
     frameCount.current++;
 
@@ -187,16 +203,19 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
 
   useEffect(() => {
     let stream: MediaStream | null = null;
+    let isMounted = true;
     
     const initializeSequence = async () => {
+        if (!scriptLoaded) return;
+
         await setupDetector();
 
-        if (!faceDetectorRef.current) return; // Stop if detector failed
+        if (!isMounted || !faceDetectorRef.current) return;
 
         try {
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                 stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-                if (videoRef.current) {
+                if (isMounted && videoRef.current) {
                     videoRef.current.srcObject = stream;
                     videoRef.current.addEventListener('loadeddata', predictWebcam);
                 }
@@ -212,6 +231,7 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
     initializeSequence();
 
     return () => {
+        isMounted = false;
         if (stream) stream.getTracks().forEach(track => track.stop());
         const videoElement = videoRef.current;
         if (videoElement) {
@@ -221,7 +241,7 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
             cancelAnimationFrame(animationFrameId.current);
         }
     };
-  }, [setupDetector, predictWebcam]);
+  }, [scriptLoaded, setupDetector, predictWebcam]);
 
   const videoWidth = videoRef.current?.clientWidth ?? 1;
   const videoHeight = videoRef.current?.clientHeight ?? 1;
@@ -235,7 +255,7 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
             {error && <p className="text-red-400 font-medium">{error}</p>}
         </div>
       )}
-      {!error && (
+      {!error && !isLoading && (
         <>
             <div className="absolute w-1.5 bg-[#1178C0] shadow-[0_0_15px_rgba(17,120,192,0.9)]"
                 style={{ left: '50%', top: 0, bottom: 0, transform: 'translateX(-50%)' }}
