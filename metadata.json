@@ -1,0 +1,7 @@
+{
+  "name": "Virtual Line People Counter",
+  "description": "A sleek, professional application that uses your device's camera to count people crossing a virtual line, tracking entries and exits in real-time.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
