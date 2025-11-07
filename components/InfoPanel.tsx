@@ -43,7 +43,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ entradas, salidas, dentro, camera
             <span>Cola: <span className="font-semibold text-gray-700">0</span></span>
         </div>
         <div className="text-xs text-slate-400 pt-2">
-            Nota: La detección de personas es una simulación con fines de demostración.
+            Nota: Detección de rostros en tiempo real impulsada por MediaPipe.
         </div>
       </div>
     </div>
