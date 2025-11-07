@@ -15,12 +15,7 @@ interface DetectionBox {
     width: number;
     height: number;
   };
-  info: {
-    id: number;
-    age: number;
-    gender: 'M' | 'F';
-    clientId: string;
-  };
+  id: number;
 }
 
 interface TrackedPerson {
@@ -29,10 +24,6 @@ interface TrackedPerson {
   hasCrossed: boolean;
   center: { x: number; y: number };
   box: DetectionBox['box'];
-  // Static info
-  age: number;
-  gender: 'M' | 'F';
-  clientId: string;
 }
 
 // Calculates the squared distance between two points
@@ -47,7 +38,8 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const faceDetectorRef = useRef<any>(null);
-  const animationFrameId = useRef<number | undefined>();
+  // FIX: `useRef` requires an initial value when a generic type argument is provided.
+  const animationFrameId = useRef<number | undefined>(undefined);
   const trackedPeople = useRef<Map<number, TrackedPerson>>(new Map());
   const nextPersonId = useRef(0);
   const frameCount = useRef(0);
@@ -60,9 +52,6 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
                 if (typeof mp_vision !== 'undefined' && mp_vision.FaceDetector) {
                     clearInterval(interval);
                     clearTimeout(timeout);
-                    // FIX: The error "Expected 1 arguments, but got 0" likely originates from this resolve() call,
-                    // despite being reported on line 50. Some Promise polyfills may not correctly handle
-                    // a void resolve call without arguments. Passing undefined explicitly ensures compatibility.
                     resolve(undefined);
                 }
             }, 100);
@@ -149,9 +138,6 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
                 hasCrossed: newDetection.center.x > linePosition, // Don't count people who spawn on the other side
                 center: newDetection.center,
                 box: newDetection.box,
-                age: Math.floor(Math.random() * 50) + 18,
-                gender: Math.random() > 0.5 ? 'M' : 'F',
-                clientId: `P-${newId}`,
             };
             currentDetections.set(newId, newPerson);
         }
@@ -169,7 +155,7 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
     // Set detections for rendering
     const boxesToRender: DetectionBox[] = Array.from(trackedPeople.current.values()).map(p => ({
         box: p.box,
-        info: { id: p.id, age: p.age, gender: p.gender, clientId: p.clientId },
+        id: p.id,
     }));
 
     setDetections(boxesToRender);
@@ -227,7 +213,6 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
 
     return () => {
         if (stream) stream.getTracks().forEach(track => track.stop());
-        // Check if videoRef.current exists before removing listener
         const videoElement = videoRef.current;
         if (videoElement) {
             videoElement.removeEventListener('loadeddata', predictWebcam);
@@ -256,16 +241,13 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
                 style={{ left: '50%', top: 0, bottom: 0, transform: 'translateX(-50%)' }}
             />
             {detections.map(d => (
-                <div key={d.info.id} className="absolute border-2 border-[#1178C0] rounded-md bg-[#1178c0]/20"
+                <div key={d.id} className="absolute border-2 border-[#1178C0] rounded-md bg-[#1178c0]/20"
                     style={{
                         left: `${videoWidth - d.box.originX - d.box.width}px`,
                         top: `${d.box.originY}px`,
                         width: `${d.box.width}px`,
                         height: `${d.box.height}px`,
                     }}>
-                    <div className="absolute -top-6 left-0 text-xs bg-[#1178C0] text-white px-1.5 py-0.5 rounded">
-                        {d.info.clientId} | {d.info.age} {d.info.gender}
-                    </div>
                 </div>
             ))}
         </>

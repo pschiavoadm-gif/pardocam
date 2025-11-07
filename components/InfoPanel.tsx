@@ -1,6 +1,5 @@
 import React from 'react';
 import CounterDisplay from './CounterDisplay';
-import { WifiIcon, UsersIcon, PencilIcon } from './icons';
 
 interface InfoPanelProps {
   entradas: number;
@@ -34,14 +33,6 @@ const InfoPanel: React.FC<InfoPanelProps> = ({ entradas, salidas, dentro, camera
         </div>
       </div>
       <div className="mt-8 border-t border-gray-200 pt-4 flex flex-col space-y-3 text-sm text-gray-500">
-        <div className="flex items-center">
-            <WifiIcon className="w-5 h-5 text-green-500 mr-2" />
-            <span>Estado: <span className="font-semibold text-green-600">Online</span></span>
-        </div>
-        <div className="flex items-center">
-            <UsersIcon className="w-5 h-5 text-gray-400 mr-2" />
-            <span>Cola: <span className="font-semibold text-gray-700">0</span></span>
-        </div>
         <div className="text-xs text-slate-400 pt-2">
             Nota: Detección de rostros en tiempo real impulsada por MediaPipe.
         </div>
