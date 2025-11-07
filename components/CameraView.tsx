@@ -47,7 +47,6 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const faceDetectorRef = useRef<any>(null);
-  // FIX: Corrected the type for useRef. When called without an argument, its `current` property is initially `undefined`.
   const animationFrameId = useRef<number | undefined>();
   const trackedPeople = useRef<Map<number, TrackedPerson>>(new Map());
   const nextPersonId = useRef(0);
@@ -55,10 +54,25 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
 
   const setupDetector = useCallback(async () => {
     try {
-        if (typeof mp_vision === "undefined") {
-            setError("MediaPipe library not loaded yet. Please refresh.");
-            return;
-        }
+        // Poll for mp_vision to be loaded with a timeout
+        await new Promise<void>((resolve, reject) => {
+            const interval = setInterval(() => {
+                if (typeof mp_vision !== 'undefined' && mp_vision.FaceDetector) {
+                    clearInterval(interval);
+                    clearTimeout(timeout);
+                    // FIX: The error "Expected 1 arguments, but got 0" likely originates from this resolve() call,
+                    // despite being reported on line 50. Some Promise polyfills may not correctly handle
+                    // a void resolve call without arguments. Passing undefined explicitly ensures compatibility.
+                    resolve(undefined);
+                }
+            }, 100);
+
+            const timeout = setTimeout(() => {
+                clearInterval(interval);
+                reject(new Error("MediaPipe library not loaded yet. Please refresh."));
+            }, 10000); // 10 second timeout
+        });
+
       const { FaceDetector, FilesetResolver } = mp_vision;
       const vision = await FilesetResolver.forVisionTasks(
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
@@ -72,9 +86,10 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
       });
       faceDetectorRef.current = detector;
       setIsLoading(false);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to initialize detector:", e);
-      setError("Failed to initialize face detector.");
+      setError(e.message || "Failed to initialize face detector.");
+      setIsLoading(false);
     }
   }, []);
 
@@ -185,30 +200,41 @@ const CameraView: React.FC<CameraViewProps> = ({ onEntry, onExit }) => {
   }, [trackAndCount]);
 
   useEffect(() => {
-    setupDetector();
     let stream: MediaStream | null = null;
-    const startCamera = async () => {
-      try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.addEventListener('loadeddata', () => {
-                predictWebcam();
-            });
-          }
-        } else {
-          setError("Your browser does not support camera access.");
+    
+    const initializeSequence = async () => {
+        await setupDetector();
+
+        if (!faceDetectorRef.current) return; // Stop if detector failed
+
+        try {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    videoRef.current.addEventListener('loadeddata', predictWebcam);
+                }
+            } else {
+                setError("Your browser does not support camera access.");
+            }
+        } catch (err) {
+            console.error("Error accessing camera: ", err);
+            setError("Camera access was denied.");
         }
-      } catch (err) {
-        console.error("Error accessing camera: ", err);
-        setError("Camera access was denied.");
-      }
     };
-    startCamera();
+    
+    initializeSequence();
+
     return () => {
-      if (stream) stream.getTracks().forEach(track => track.stop());
-      if(animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        // Check if videoRef.current exists before removing listener
+        const videoElement = videoRef.current;
+        if (videoElement) {
+            videoElement.removeEventListener('loadeddata', predictWebcam);
+        }
+        if(animationFrameId.current) {
+            cancelAnimationFrame(animationFrameId.current);
+        }
     };
   }, [setupDetector, predictWebcam]);
 
